@@ -17,6 +17,10 @@
 
 #pragma once
 
+#ifdef USE_CRUISE
+void altHoldResetForCruise(void);
+#endif
+
 #ifndef USE_WING
 
 #include "pg/alt_hold.h"

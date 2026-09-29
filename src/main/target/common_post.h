@@ -908,6 +908,12 @@ extern struct linker_symbol __fontdata_end;
 #define ENABLE_FLIGHT_PLAN 0
 #endif
 
+// CRUISE is a multirotor attitude hold using the existing altitude controller.
+// Unit tests opt in explicitly so unrelated legacy harnesses need no cruise stubs.
+#if defined(USE_ACC) && defined(USE_ALTITUDE_HOLD) && !defined(USE_WING) && !defined(UNIT_TEST)
+#define USE_CRUISE
+#endif
+
 // GPS rescue (both the BOXGPSRESCUE switch and the failsafe procedure) flown as
 // a synthesised flight-plan mission through the unified autopilot, instead of
 // the legacy gps_rescue controller. Default-on wherever the flight-plan engine

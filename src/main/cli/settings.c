@@ -85,6 +85,7 @@
 #include "pg/adc.h"
 #include "pg/alt_hold.h"
 #include "pg/autopilot.h"
+#include "pg/cruise.h"
 #include "pg/beeper.h"
 #include "pg/beeper_dev.h"
 #include "pg/bus_i2c.h"
@@ -2104,6 +2105,17 @@ const clivalue_t valueTable[] = {
     { PARAM_NAME_ALTITUDE_LPF,          VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 5000 }, PG_POSITION, offsetof(positionConfig_t, altitude_lpf) },
     { "rangefinder_max_range_cm",       VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 50, 1000 }, PG_POSITION, offsetof(positionConfig_t, rangefinder_max_range_cm) },
     { PARAM_NAME_ALTITUDE_D_LPF,        VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 10, 5000 }, PG_POSITION, offsetof(positionConfig_t, altitude_d_lpf) },
+
+#ifdef USE_CRUISE
+    { "cruise_angle_limit", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 80 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, angleLimit) },
+    { "cruise_deadband", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 50 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, stickDeadband) },
+    { "cruise_throttle_threshold", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 100 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, throttleThreshold) },
+    { "cruise_throttle_hysteresis", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, throttleHysteresis) },
+    { "cruise_throttle_delay", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, throttleDelayMs) },
+    { "cruise_pitch_correction_rate", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 1, 30 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, pitchCorrectionRate) },
+    { "cruise_reserve_boost", VAR_UINT8 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 20 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, reserveBoost) },
+    { "cruise_stick_time", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 10000 }, PG_CRUISE_CONFIG, offsetof(cruiseConfig_t, stickTimeMs) },
+#endif
 
 // PG_AUTOPILOT
 #ifndef USE_WING

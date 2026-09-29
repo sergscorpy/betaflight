@@ -38,6 +38,7 @@ extern "C" {
     #include "fc/core.h"
 
     #include "flight/failsafe.h"
+    #include "flight/cruise.h"
     #include "flight/flight_plan_nav.h"
 
     #include "io/beeper.h"
@@ -783,6 +784,7 @@ TEST(FlightFailsafeTest, TestFailsafeGpsRescueProcedureLandsWhenUnconfigured)
 
 extern "C" {
     extern bool testSticksActive;
+    extern bool testThrottleRaised;
     extern bool testFlightPlanActive;
     extern flightPlanNavState_e testFlightPlanState;
 }
@@ -799,6 +801,7 @@ protected:
         testFlightPlanActive = false;
         testFlightPlanState = FP_NAV_IDLE;
         throttleStatus = THROTTLE_HIGH;
+        testThrottleRaised = true;
         deactivateBoxFailsafe();
 
         failsafeInit();
@@ -950,7 +953,56 @@ TEST_F(FlightFailsafeAutopilotTest, AutopilotPhaseRecoversWithRxAndSticks)
 
 // STUBS
 
+TEST_F(FlightFailsafeAutopilotTest, CruiseProcedureNeverEntersLandingOrDisarmsOnTimeout)
+{
+    failsafeConfigMutable()->failsafe_procedure = FAILSAFE_PROCEDURE_CRUISE;
+    loseRxIntoStage2();
+    EXPECT_EQ(FAILSAFE_CRUISE, failsafePhase());
+    EXPECT_TRUE(FLIGHT_MODE(CRUISE_MODE));
+    tickLinkStillDown(120000); // far longer than the configured landing timeout
+    EXPECT_EQ(FAILSAFE_CRUISE, failsafePhase());
+    EXPECT_EQ(0, CALL_COUNTER(COUNTER_MW_DISARM));
+}
+
+TEST_F(FlightFailsafeAutopilotTest, CruiseProcedureRecoversLinkWithoutReleasingCruise)
+{
+    failsafeConfigMutable()->failsafe_procedure = FAILSAFE_PROCEDURE_CRUISE;
+    loseRxIntoStage2();
+    ASSERT_EQ(FAILSAFE_CRUISE, failsafePhase());
+    sysTickUptime += PERIOD_RXDATA_RECOVERY + 1;
+    failsafeOnValidDataReceived();
+    failsafeUpdateState();
+    EXPECT_EQ(FAILSAFE_IDLE, failsafePhase());
+    EXPECT_FALSE(failsafeIsActive());
+    EXPECT_TRUE(FLIGHT_MODE(CRUISE_MODE));
+    EXPECT_EQ(0, CALL_COUNTER(COUNTER_MW_DISARM));
+}
+
+TEST_F(FlightFailsafeAutopilotTest, CruiseProcedureDoesNotUseThrottleLowShortcutToDisarm)
+{
+    failsafeConfigMutable()->failsafe_procedure = FAILSAFE_PROCEDURE_CRUISE;
+    throttleStatus = THROTTLE_LOW;
+    sysTickUptime = 20000;
+    loseRxIntoStage2();
+    EXPECT_EQ(FAILSAFE_CRUISE, failsafePhase());
+    EXPECT_EQ(0, CALL_COUNTER(COUNTER_MW_DISARM));
+}
+
+TEST_F(FlightFailsafeAutopilotTest, CruiseProcedurePreservesGroundDisarmBeforeThrottleWasRaised)
+{
+    failsafeConfigMutable()->failsafe_procedure = FAILSAFE_PROCEDURE_CRUISE;
+    throttleStatus = THROTTLE_LOW;
+    testThrottleRaised = false;
+    sysTickUptime = 20000;
+    loseRxIntoStage2();
+    EXPECT_EQ(FAILSAFE_RX_LOSS_MONITORING, failsafePhase());
+    EXPECT_EQ(1, CALL_COUNTER(COUNTER_MW_DISARM));
+}
+
 extern "C" {
+void cruiseOnRxLoss(timeUs_t) { ENABLE_FLIGHT_MODE(CRUISE_MODE); }
+bool testThrottleRaised = true;
+bool wasThrottleRaised(void) { return testThrottleRaised; }
 float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 float rcCommand[4];
 int16_t debug[DEBUG16_VALUE_COUNT];

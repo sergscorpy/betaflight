@@ -404,6 +404,20 @@ static void validateAndFixConfig(void)
         }
     }
 
+    if (failsafeConfig()->failsafe_procedure >= FAILSAFE_PROCEDURE_COUNT
+#ifndef USE_GPS_RESCUE
+        || failsafeConfig()->failsafe_procedure == FAILSAFE_PROCEDURE_GPS_RESCUE
+#endif
+#ifndef USE_CRUISE
+        || failsafeConfig()->failsafe_procedure == FAILSAFE_PROCEDURE_CRUISE
+#else
+        || (failsafeConfig()->failsafe_procedure == FAILSAFE_PROCEDURE_CRUISE
+            && (featureIsConfigured(FEATURE_3D) || mixerModeIsFixedWing(mixerConfig()->mixerMode)))
+#endif
+        ) {
+        failsafeConfigMutable()->failsafe_procedure = FAILSAFE_PROCEDURE_DROP_IT;
+    }
+
 #if defined(USE_ESC_SENSOR)
     // DroneCAN ESC telemetry feeds escSensorData[] without a serial port, so
     // only a serial-sourced sensor requires one.

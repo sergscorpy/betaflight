@@ -48,6 +48,7 @@
 #include "flight/alt_hold.h"
 #include "flight/autopilot.h"
 #include "flight/failsafe.h"
+#include "flight/cruise.h"
 #include "flight/gps_rescue.h"
 #include "flight/launch_wing.h"
 #include "flight/imu.h"
@@ -826,6 +827,15 @@ FAST_CODE_NOINLINE_CRITICAL void mixTable(timeUs_t currentTimeUs)
     }
 #endif
 
+#ifdef USE_CRUISE
+    if (cruiseIsReserve()) {
+        throttle = cruiseGetReserveThrottle();
+    } else if (cruiseIsActive() && (!FLIGHT_MODE(ALT_HOLD_MODE) || !isAltHoldActive())) {
+        // Keep the captured collective until the altitude task has produced its first command.
+        throttle = cruiseGetReferenceThrottle();
+    }
+    cruiseObserveThrottle(throttle);
+#endif
     motorMixRange = motorMixMax - motorMixMin;
 
     // note that here airmodeEnabled is true also when Launch Control is active
@@ -849,6 +859,7 @@ FAST_CODE_NOINLINE_CRITICAL void mixTable(timeUs_t currentTimeUs)
         && ARMING_FLAG(ARMED)
         && !mixerRuntime.feature3dEnabled
         && !airmodeEnabled
+        && !cruiseIsActive()
         && !FLIGHT_MODE(GPS_RESCUE_MODE | ALT_HOLD_MODE | POS_HOLD_MODE | LAUNCH_MODE)   // disable motor_stop while GPS Rescue / Alt Hold / Pos Hold / Launch is active
         && (rcData[THROTTLE] < rxConfig()->mincheck)) {
         applyMotorStop();

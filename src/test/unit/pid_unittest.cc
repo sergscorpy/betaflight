@@ -64,6 +64,7 @@ extern "C" {
     #include "flight/imu.h"
     #include "flight/mixer.h"
     #include "flight/pid.h"
+    #include "flight/cruise.h"
     #include "flight/pid_init.h"
     #include "flight/position.h"
 
@@ -120,6 +121,14 @@ extern "C" {
         float maxRate = simulatedMaxRate[axis];
         return maxRate;
     }
+
+    bool testCruiseActive = false;
+    bool testCruisePilotAvailable = true;
+    float testCruiseAngles[2];
+    bool cruiseIsActive(void) { return testCruiseActive; }
+    bool cruisePilotHasControl(void) { return testCruisePilotAvailable; }
+    float cruiseGetAngle(int axis) { return testCruiseAngles[axis]; }
+    bool isAltitudeAvailable(void) { return true; }
     void initRcProcessing(void) { }
 }
 
@@ -187,6 +196,9 @@ timeUs_t currentTestTime(void)
 
 void resetTest(void)
 {
+    testCruiseActive = false;
+    testCruisePilotAvailable = true;
+    testCruiseAngles[ROLL] = testCruiseAngles[PITCH] = 0;
     loopIter = 0;
     pidRuntime.tpaFactor = 1.0f;
     simulatedMotorMixRange = 0.0f;
@@ -386,6 +398,44 @@ TEST(pidControllerTest, testPidLoop)
     EXPECT_FLOAT_EQ(0, pidData[FD_ROLL].D);
     EXPECT_FLOAT_EQ(0, pidData[FD_PITCH].D);
     EXPECT_FLOAT_EQ(0, pidData[FD_YAW].D);
+}
+
+TEST(pidControllerTest, CruiseHoldsMeasuredAttitudeWithoutTrimsOrRacePitchAndIgnoresLostYaw)
+{
+    resetTest();
+    testCruiseActive = true;
+    testCruisePilotAvailable = false;
+    testCruiseAngles[ROLL] = 10;
+    testCruiseAngles[PITCH] = 20;
+    attitude.values.roll = 100;
+    attitude.values.pitch = 200;
+    accelerometerConfigMutable()->accelerometerTrims.raw[ROLL] = 30;
+    accelerometerConfigMutable()->accelerometerTrims.raw[PITCH] = -40;
+    pidProfile->level_race_mode = true;
+    pidInit(pidProfile);
+    flightModeFlags = CRUISE_MODE; // immediate RX-loss capture, before core sets ANGLE
+    ENABLE_ARMING_FLAG(ARMED);
+    pidStabilisationState(PID_STABILISATION_ON);
+    for (int axis = ROLL; axis <= YAW; axis++) {
+        simulatedSetpointRate[axis] = 500; // substituted RC command must not leak into hold
+        simulatedPrevSetpointRate[axis] = 0;
+    }
+    for (int i = 0; i < 100; i++) {
+        pidController(pidProfile, currentTestTime());
+    }
+    EXPECT_TRUE(pidRuntime.axisInAngleMode[ROLL]);
+    EXPECT_TRUE(pidRuntime.axisInAngleMode[PITCH]);
+    EXPECT_FLOAT_EQ(pidData[ROLL].P, 0);
+    EXPECT_FLOAT_EQ(pidData[PITCH].P, 0);
+    EXPECT_FLOAT_EQ(pidData[YAW].P, 0);
+    EXPECT_FLOAT_EQ(pidData[YAW].F, 0);
+
+    testCruisePilotAvailable = true;
+    for (int i = 0; i < 100; i++) {
+        pidController(pidProfile, currentTestTime());
+    }
+    EXPECT_GT(pidData[YAW].P, 0); // normal yaw control resumes inside CRUISE
+    resetTest();
 }
 
 TEST(pidControllerTest, testPidLevel)

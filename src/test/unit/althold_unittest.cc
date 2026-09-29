@@ -19,6 +19,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <string.h>
+#include <math.h>
 
 extern "C" {
 
@@ -36,6 +37,7 @@ extern "C" {
     #include "flight/alt_hold.h"
     #include "flight/autopilot_multirotor.h"
     #include "flight/failsafe.h"
+    #include "flight/cruise.h"
     #include "flight/imu.h"
     #include "flight/pid.h"
     #include "flight/position.h"
@@ -60,7 +62,14 @@ extern "C" {
     PG_REGISTER(positionConfig_t, positionConfig, PG_POSITION, 0);
     PG_REGISTER(rcControlsConfig_t, rcControlsConfig, PG_RC_CONTROLS_CONFIG, 0);
 
-    bool failsafeIsActive(void) { return false; }
+    bool testFailsafeActive = false;
+    bool testCruiseActive = false;
+    bool testCruisePilotAvailable = true;
+    float testCruiseReferenceThrottle = 0.2f;
+    bool failsafeIsActive(void) { return testFailsafeActive; }
+    bool cruiseIsActive(void) { return testCruiseActive; }
+    bool cruisePilotHasControl(void) { return testCruisePilotAvailable; }
+    float cruiseGetReferenceThrottle(void) { return testCruiseReferenceThrottle; }
     timeUs_t currentTimeUs = 0;
     bool isAltHoldActive();
     extern float testAltitudeCm;
@@ -87,6 +96,9 @@ protected:
         memset(&gpsSol, 0, sizeof(gpsSol));
         memset(rcCommand, 0, sizeof(rcCommand));
         flightModeFlags = 0;
+        testFailsafeActive = testCruiseActive = false;
+        testCruisePilotAvailable = true;
+        testCruiseReferenceThrottle = 0.2f;
         millisRW = 0;
         testAltitudeCm = 0.0f;
         testAltitudeDerivativeCmS = 0.0f;
@@ -305,6 +317,47 @@ TEST_F(AltholdControlUnittest, AltHoldIntegratesOverTheMeasuredInterval)
     const float longStep = throttleAfterOneStep(4 * TASK_PERIOD_HZ(ALTHOLD_TASK_RATE_HZ));
 
     EXPECT_GT(longStep, shortStep);
+}
+
+TEST_F(AltholdControlUnittest, CruiseFailsafeHoldsAltitudeInsteadOfLandingOrUsingRxfailThrottle)
+{
+    testCruiseActive = testFailsafeActive = true;
+    testCruisePilotAvailable = false;
+    testAltitudeCm = 3000.0f;
+    testThrottleStatus = THROTTLE_HIGH;
+    rcCommand[THROTTLE] = 2000.0f; // RX substitution must not command a climb either.
+    flightModeFlags = ALT_HOLD_MODE | CRUISE_MODE | FAILSAFE_MODE;
+    updateAltHold(currentTimeUs);
+    const float heldThrottle = getAutopilotThrottle();
+    for (int i = 0; i < 500; i++) {
+        updateAltHold(currentTimeUs);
+    }
+    EXPECT_FLOAT_EQ(getAutopilotThrottle(), heldThrottle);
+
+    autopilotConfigMutable()->hoverThrottle = autopilotGetEffectiveHoverThrottlePwm();
+    testCruiseActive = false; // Compare stock landing using the same hover baseline.
+    updateAltHold(currentTimeUs);
+    EXPECT_LT(getAutopilotThrottle(), heldThrottle);
+}
+
+TEST_F(AltholdControlUnittest, CruiseRestartsAltitudeHoldAtCurrentAltitudeAndCapturedCollective)
+{
+    testCruiseActive = true;
+    testCruisePilotAvailable = false;
+    testCruiseReferenceThrottle = .3f;
+    testCosTiltAngle = .8f;
+    testAltitudeCm = 3000.0f;
+    flightModeFlags = ALT_HOLD_MODE | CRUISE_MODE;
+    updateAltHold(currentTimeUs);
+    const float beforeLoss = getAutopilotThrottle();
+    const float hover = 1000 + (1050 + .3f * 950 - 1000) * .8f;
+    EXPECT_EQ(autopilotGetEffectiveHoverThrottlePwm(), lroundf(hover));
+    altHoldResetForCruise();
+    EXPECT_FALSE(isAltHoldActive());
+    testAltitudeCm = 4000.0f; // Changed during the fixed-throttle reserve flight.
+    updateAltHold(currentTimeUs);
+    EXPECT_TRUE(isAltHoldActive());
+    EXPECT_FLOAT_EQ(getAutopilotThrottle(), beforeLoss);
 }
 
 // STUBS

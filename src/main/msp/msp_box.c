@@ -105,7 +105,9 @@ static const box_t boxes[CHECKBOX_ITEM_COUNT] = {
     { .boxId = BOXCHIRP, .boxName = "CHIRP", .permanentId = 55},
     { .boxId = BOXAUTOPILOT, .boxName = "AUTOPILOT", .permanentId = 56},
     { .boxId = BOXWPCAPTURE, .boxName = "WP CAPTURE", .permanentId = 57},
-    { .boxId = BOXLAUNCH, .boxName = "LAUNCH", .permanentId = 58}
+    { .boxId = BOXLAUNCH, .boxName = "LAUNCH", .permanentId = 58},
+    { .boxId = BOXCRUISE, .boxName = "CRUISE", .permanentId = 59},
+    { .boxId = BOXCRUISERESERVE, .boxName = "CRUISE RESERVE", .permanentId = 60}
 };
 
 // mask of enabled IDs, calculated on startup based on enabled features. boxId_e is used as bit index
@@ -209,6 +211,12 @@ void initActiveBoxIds(void)
 #define BME(boxId) do { bitArraySet(&ena, boxId); } while (0)
     BME(BOXARM);
     BME(BOXPREARM);
+#ifdef USE_CRUISE
+    if (sensors(SENSOR_ACC) && !isFixedWing() && !featureIsEnabled(FEATURE_3D)) {
+        BME(BOXCRUISE);
+        BME(BOXCRUISERESERVE);
+    }
+#endif
     if (!featureIsEnabled(FEATURE_AIRMODE)) {
         BME(BOXAIRMODE);
     }
@@ -407,6 +415,10 @@ bool getBoxIdState(boxId_e boxid)
 
     if (boxid == BOXARM) {
         return ARMING_FLAG(ARMED);
+#ifdef USE_CRUISE
+    } else if (boxid == BOXCRUISE) {
+        return FLIGHT_MODE(CRUISE_MODE);
+#endif
 #if defined(USE_WING) && defined(USE_LAUNCH_WING)
     } else if (boxid == BOXLAUNCH) {
         return FLIGHT_MODE(LAUNCH_MODE);

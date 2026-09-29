@@ -60,6 +60,7 @@
 #include "fc/stats.h"
 
 #include "flight/failsafe.h"
+#include "flight/cruise.h"
 #include "flight/autopilot.h"
 #include "flight/launch_wing.h"
 #include "flight/gps_rescue.h"
@@ -850,7 +851,7 @@ bool processRx(timeUs_t currentTimeUs)
 
     // Note: If Airmode is enabled, on arming, iTerm and PIDs will be off until throttle exceeds the threshold (OFF while disarmed)
     // If not, iTerm will be off at low throttle, with pidStabilisationState determining whether PIDs will be active
-    if (ARMING_FLAG(ARMED) && (isAirmodeActive || throttleActive || launchControlActive || isFixedWing())) {
+    if (ARMING_FLAG(ARMED) && (isAirmodeActive || throttleActive || launchControlActive || isFixedWing() || cruiseIsActive())) {
         // the wing launch holds iTerm off until spin-up, but must keep the rest
         // of the stabilisation running through the motor delay
         pidSetItermReset(launchWingHoldsIterm());
@@ -972,6 +973,7 @@ void processRxModes(timeUs_t currentTimeUs)
         && !featureIsEnabled(FEATURE_3D)
         && !isAirmodeEnabled()
         && !FLIGHT_MODE(GPS_RESCUE_MODE)  // disable auto-disarm when GPS Rescue is active
+        && !cruiseIsActive()
         && !flightPlanNavIsRescuePlanActive()  // ... or a plan rescue / fallback descent is flying
         && !flightPlanNavIsRescueDescentActive()
     ) {
@@ -1010,6 +1012,7 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 
     if (!(IS_RC_MODE_ACTIVE(BOXPARALYZE) && !ARMING_FLAG(ARMED))
+        && (!cruiseIsActive() || (rxAreFlightChannelsValid() && failsafeIsReceivingRxData()))
 #ifdef USE_CMS
         && !cmsInMenu
 #endif
@@ -1022,6 +1025,9 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 
     updateActivatedModes();
+#ifdef USE_CRUISE
+    cruiseUpdateModes(currentTimeUs);
+#endif
 
 #ifdef USE_DSHOT
     if (crashFlipModeActive) {
@@ -1029,12 +1035,14 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 #endif
 
-    if (!cliMode && !(IS_RC_MODE_ACTIVE(BOXPARALYZE) && !ARMING_FLAG(ARMED))) {
+    if (!cliMode && !(IS_RC_MODE_ACTIVE(BOXPARALYZE) && !ARMING_FLAG(ARMED))
+        && (!cruiseIsActive() || cruisePilotHasControl())) {
         processRcAdjustments(currentControlRateProfile);
     }
 
     bool canUseHorizonMode = true;
     if ((IS_RC_MODE_ACTIVE(BOXANGLE)
+        || cruiseIsActive() || cruiseFallbackAngle()
         || failsafeIsActive()
 #ifdef USE_ALTITUDE_HOLD
         || FLIGHT_MODE(ALT_HOLD_MODE)
@@ -1060,7 +1068,7 @@ void processRxModes(timeUs_t currentTimeUs)
     // Legacy: the pilot's switch and the failsafe procedure both fly the legacy
     // GPS_RESCUE_MODE controller. (With ENABLE_RESCUE_PLAN both are flown as an
     // autopilot rescue mission instead - staged below and in failsafe.c.)
-    if (ARMING_FLAG(ARMED) && gpsRescueIsConfigured()
+    if (ARMING_FLAG(ARMED) && gpsRescueIsConfigured() && !cruiseIsActive()
         && (IS_RC_MODE_ACTIVE(BOXGPSRESCUE)
         || (failsafeIsActive() && failsafeConfig()->failsafe_procedure == FAILSAFE_PROCEDURE_GPS_RESCUE))) {
         if (!FLIGHT_MODE(GPS_RESCUE_MODE)) {
@@ -1099,7 +1107,7 @@ void processRxModes(timeUs_t currentTimeUs)
     bool rescueDescentRequest = false;
     static bool rescueSwitchStaged = false;
     static bool rescueSwitchDescending = false;
-    if (ARMING_FLAG(ARMED) && IS_RC_MODE_ACTIVE(BOXGPSRESCUE) && !failsafeIsActive()) {
+    if (ARMING_FLAG(ARMED) && IS_RC_MODE_ACTIVE(BOXGPSRESCUE) && !failsafeIsActive() && !cruiseIsActive()) {
         if (!rescueSwitchStaged) {
             rescueSwitchStaged = flightPlanNavStageRescuePlan();
         }
@@ -1136,6 +1144,7 @@ void processRxModes(timeUs_t currentTimeUs)
         // GPS Rescue has priority over the mission
         && !FLIGHT_MODE(GPS_RESCUE_MODE)
         && autopilotRequested
+        && !cruiseIsActive()
         && sensors(SENSOR_ACC)
         && sensors(SENSOR_GPS) && STATE(GPS_FIX)
         // waypoints carry altitude; without altitude data the mission must not run
@@ -1186,7 +1195,8 @@ void processRxModes(timeUs_t currentTimeUs)
         && !FLIGHT_MODE(LAUNCH_MODE)
         // and either the alt_hold switch is activated, or are in failsafe landing mode,
         // or an autopilot mission needs altitude control, or a switch-rescue fallback descent
-        && (IS_RC_MODE_ACTIVE(BOXALTHOLD) || failsafeIsActive() || FLIGHT_MODE(AUTOPILOT_MODE) || flightPlanNavIsRescueDescentActive())
+        && !cruiseIsReserve()
+        && (IS_RC_MODE_ACTIVE(BOXALTHOLD) || failsafeIsActive() || cruiseIsActive() || FLIGHT_MODE(AUTOPILOT_MODE) || flightPlanNavIsRescueDescentActive())
         // and we have Acc for self-levelling
         && sensors(SENSOR_ACC)
         // and this platform actually has an altitude control law
@@ -1211,6 +1221,7 @@ void processRxModes(timeUs_t currentTimeUs)
         && !FLIGHT_MODE(LAUNCH_MODE)
         // and either the pos_hold switch is activated, or are in failsafe landing mode,
         // or an autopilot mission needs the position controller
+        && !cruiseIsActive()
         && (IS_RC_MODE_ACTIVE(BOXPOSHOLD) || failsafeIsActive() || FLIGHT_MODE(AUTOPILOT_MODE))
         // and we have Acc for self-levelling
         && sensors(SENSOR_ACC)
@@ -1236,7 +1247,7 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 
 #ifdef USE_CHIRP
-    if (IS_RC_MODE_ACTIVE(BOXCHIRP) && !FLIGHT_MODE(FAILSAFE_MODE) && !FLIGHT_MODE(GPS_RESCUE_MODE)) {
+    if (IS_RC_MODE_ACTIVE(BOXCHIRP) && !FLIGHT_MODE(FAILSAFE_MODE) && !FLIGHT_MODE(GPS_RESCUE_MODE) && !cruiseIsActive()) {
         if (!FLIGHT_MODE(CHIRP_MODE)) {
             ENABLE_FLIGHT_MODE(CHIRP_MODE);
         }
@@ -1260,7 +1271,7 @@ void processRxModes(timeUs_t currentTimeUs)
 
 #if defined(USE_ACC) || defined(USE_MAG)
     if (sensors(SENSOR_ACC) || sensors(SENSOR_MAG)) {
-        if (IS_RC_MODE_ACTIVE(BOXHEADFREE) && !FLIGHT_MODE(GPS_RESCUE_MODE)) {
+        if (IS_RC_MODE_ACTIVE(BOXHEADFREE) && !FLIGHT_MODE(GPS_RESCUE_MODE) && !cruiseIsActive()) {
             if (!FLIGHT_MODE(HEADFREE_MODE)) {
                 ENABLE_FLIGHT_MODE(HEADFREE_MODE);
             }
@@ -1275,7 +1286,7 @@ void processRxModes(timeUs_t currentTimeUs)
     }
 #endif
 
-    if (IS_RC_MODE_ACTIVE(BOXPASSTHRU)) {
+    if (IS_RC_MODE_ACTIVE(BOXPASSTHRU) && !cruiseIsActive()) {
         ENABLE_FLIGHT_MODE(PASSTHRU_MODE);
     } else {
         DISABLE_FLIGHT_MODE(PASSTHRU_MODE);
@@ -1320,6 +1331,9 @@ void processRxModes(timeUs_t currentTimeUs)
 
 static FAST_CODE_NOINLINE_CRITICAL void subTaskPidController(timeUs_t currentTimeUs)
 {
+#ifdef USE_CRUISE
+    cruiseUpdateControl(currentTimeUs);
+#endif
     uint32_t startTime = 0;
     if (debugMode == DEBUG_PIDLOOP) {startTime = micros();}
     // PID - note this is function pointer set by setPIDController()

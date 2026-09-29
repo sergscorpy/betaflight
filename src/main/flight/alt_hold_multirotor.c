@@ -32,6 +32,7 @@
 
 #include "flight/autopilot.h"
 #include "flight/failsafe.h"
+#include "flight/cruise.h"
 #include "flight/position.h"
 #include "flight/position_estimator.h"
 #include "flight/position_nav.h"
@@ -89,6 +90,15 @@ static void altHoldReset(void)
     altHold.targetVelocity = 0.0f;
 }
 
+#ifdef USE_CRUISE
+void altHoldResetForCruise(void)
+{
+    altHold.isActive = false;
+    resetAltitudeControl();
+    autopilotClearAltHoldHoverThrottle();
+}
+#endif
+
 void altHoldInit(void)
 {
     altHold.isActive = false;
@@ -124,7 +134,8 @@ static void altHoldUpdateTargetAltitude(timeUs_t taskIntervalUs)
 
     float stickFactor = 0.0f;
 
-    if (altHold.allowStickAdjustment && calculateThrottleStatus() != THROTTLE_LOW) {
+    if ((!cruiseIsActive() || cruisePilotHasControl())
+        && altHold.allowStickAdjustment && calculateThrottleStatus() != THROTTLE_LOW) {
         const float rcThrottle = rcCommand[THROTTLE];
         const float hoverPwm = (float)autopilotGetEffectiveHoverThrottlePwm();
         const float lowThreshold = hoverPwm - altHold.deadband * (hoverPwm - PWM_RANGE_MIN);
@@ -146,7 +157,7 @@ static void altHoldUpdateTargetAltitude(timeUs_t taskIntervalUs)
             
     // if failsafe is active, and we get here, we are in failsafe landing mode, it controls throttle.
     // a commanded emergency descent (a rescue that cannot stage or has aborted) drives the same descent.
-    if (failsafeIsActive() || altHold.emergencyDescentRateCmS > 0.0f) {
+    if ((failsafeIsActive() && !cruiseIsActive()) || altHold.emergencyDescentRateCmS > 0.0f) {
         // descend at up to 10 times faster when high
         // default landing timeout is now 60s; must to get the quad down within this limit
         // need a rapid descent when initiated high, and must slow down closer to ground

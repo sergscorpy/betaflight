@@ -45,7 +45,14 @@ althold_unittest_SRC := \
 		$(USER_DIR)/pg/rx.c
 
 althold_unittest_DEFINES := \
+		USE_CRUISE= \
 		USE_ALTITUDE_HOLD= \
+
+cruise_unittest_SRC := \
+        $(USER_DIR)/flight/cruise.c \
+        $(USER_DIR)/common/maths.c
+
+cruise_unittest_DEFINES := USE_CRUISE= USE_ACC= USE_ALTITUDE_HOLD=
 
 arming_prevention_unittest_SRC := \
 		$(USER_DIR)/common/bitarray.c \
@@ -218,6 +225,7 @@ flight_failsafe_unittest_SRC := \
 		$(USER_DIR)/pg/autopilot.c
 
 flight_failsafe_unittest_DEFINES := \
+		USE_CRUISE= \
 		USE_GPS_RESCUE= \
 		ENABLE_FLIGHT_PLAN=1
 
@@ -623,6 +631,7 @@ pid_unittest_SRC :=  \
 		$(USER_DIR)/pg/pg.c
 
 pid_unittest_DEFINES := \
+		USE_CRUISE= \
 		USE_ITERM_RELAX= \
 		USE_RC_SMOOTHING_FILTER= \
 		USE_LAUNCH_CONTROL= \

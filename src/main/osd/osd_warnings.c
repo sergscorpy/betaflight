@@ -46,6 +46,7 @@
 #include "fc/runtime_config.h"
 
 #include "flight/failsafe.h"
+#include "flight/cruise.h"
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
 #include "flight/launch_wing.h"
@@ -244,7 +245,7 @@ void renderOsdWarning(char *warningText, bool *blinking, uint8_t *displayAttr)
         return;
     }
 #endif // USE_DSHOT
-    if (osdWarnGetState(OSD_WARNING_FAIL_SAFE) && failsafeIsActive()) {
+    if (osdWarnGetState(OSD_WARNING_FAIL_SAFE) && failsafeIsActive() && !cruiseIsActive()) {
         tfp_sprintf(warningText, "FAIL SAFE");
         *displayAttr = DISPLAYPORT_SEVERITY_CRITICAL;
         *blinking = true;
@@ -542,6 +543,17 @@ void renderOsdWarning(char *warningText, bool *blinking, uint8_t *displayAttr)
         *displayAttr = DISPLAYPORT_SEVERITY_WARNING;
         return;
     }
+
+#ifdef USE_CRUISE
+    // Flight events must not mask battery, load or other existing critical warnings.
+    const char *cruiseMessage = cruiseGetMessage(currentTimeUs);
+    if (cruiseMessage) {
+        tfp_sprintf(warningText, "CRUISE: %s", cruiseMessage);
+        *displayAttr = cruiseIsReserve() ? DISPLAYPORT_SEVERITY_WARNING : DISPLAYPORT_SEVERITY_INFO;
+        *blinking = cruiseIsReserve();
+        return;
+    }
+#endif
 
     // Visual beeper
     if (osdWarnGetState(OSD_WARNING_VISUAL_BEEPER) && osdGetVisualBeeperState()) {

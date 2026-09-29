@@ -94,7 +94,8 @@ typedef enum {
     FAILSAFE_MODE   = (1 << 10),
     GPS_RESCUE_MODE = (1 << 11),
     AUTOPILOT_MODE  = (1 << 12), // GPS waypoint tracking
-    LAUNCH_MODE     = (1 << 13)  // fixed-wing launch assist
+    LAUNCH_MODE     = (1 << 13), // fixed-wing launch assist
+    CRUISE_MODE     = (1 << 14)
 } flightModeFlags_e;
 
 extern uint16_t flightModeFlags;
@@ -139,4 +140,3 @@ bool sensors(uint32_t mask);
 void sensorsSet(uint32_t mask);
 void sensorsClear(uint32_t mask);
 uint32_t sensorsMask(void);
-

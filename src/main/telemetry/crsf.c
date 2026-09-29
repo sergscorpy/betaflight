@@ -617,7 +617,9 @@ static void crsfFrameFlightMode(sbuf_t *dst)
     const char *flightMode = "ACRO";
 
     // Flight modes in decreasing order of importance
-    if (FLIGHT_MODE(FAILSAFE_MODE) || IS_RC_MODE_ACTIVE(BOXFAILSAFE)) {
+    if (FLIGHT_MODE(CRUISE_MODE)) {
+        flightMode = "CRUISE";
+    } else if (FLIGHT_MODE(FAILSAFE_MODE) || IS_RC_MODE_ACTIVE(BOXFAILSAFE)) {
         flightMode = "!FS!";
     } else if (FLIGHT_MODE(GPS_RESCUE_MODE) || IS_RC_MODE_ACTIVE(BOXGPSRESCUE) || flightPlanNavIsRescuePlanActive()) {
         flightMode = "RTH";

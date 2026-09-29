@@ -41,6 +41,7 @@
 #include "fc/runtime_config.h"
 
 #include "flight/failsafe.h"
+#include "flight/cruise.h"
 #include "flight/flight_plan_nav.h"
 #include "flight/gps_rescue.h"
 
@@ -93,9 +94,8 @@ PG_RESET_TEMPLATE(failsafeConfig_t, failsafeConfig,
 const char * const failsafeProcedureNames[FAILSAFE_PROCEDURE_COUNT] = {
     "AUTO-LAND",
     "DROP",
-#ifdef USE_GPS_RESCUE
     "GPS-RESCUE",
-#endif
+    "CRUISE",
 };
 
 /*
@@ -241,6 +241,13 @@ LOCAL_UNUSED_FUNCTION static uint32_t failsafeFailurePeriodMs(void)
 static void failsafeStartProcedure(failsafeProcedure_e procedure)
 {
     switch (procedure) {
+#ifdef USE_CRUISE
+        case FAILSAFE_PROCEDURE_CRUISE:
+            cruiseOnRxLoss(micros());
+            ENABLE_FLIGHT_MODE(FAILSAFE_MODE);
+            failsafeState.phase = FAILSAFE_CRUISE;
+            break;
+#endif
         case FAILSAFE_PROCEDURE_AUTO_LANDING:
             //  Enter Stage 2 with settings for landing mode
             ENABLE_FLIGHT_MODE(FAILSAFE_MODE);
@@ -337,8 +344,9 @@ FAST_CODE_NOINLINE void failsafeUpdateState(void)
                         reprocessState = true;
                     } else if (!receivingRxData) {
                         if (millis() > failsafeState.throttleLowPeriod
-#ifdef USE_GPS_RESCUE
                             && failsafeConfig()->failsafe_procedure != FAILSAFE_PROCEDURE_GPS_RESCUE
+#ifdef USE_CRUISE
+                            && (failsafeConfig()->failsafe_procedure != FAILSAFE_PROCEDURE_CRUISE || !wasThrottleRaised())
 #endif
                             ) {
                             //  JustDisarm if throttle was LOW for at least 'failsafe_throttle_low_delay' before failsafe
@@ -405,6 +413,18 @@ FAST_CODE_NOINLINE void failsafeUpdateState(void)
                     }
                 }
                 reprocessState = true;
+                break;
+
+            case FAILSAFE_CRUISE:
+                // Link recovery clears failsafe, but CRUISE retains its own pilot-release latch.
+                if (receivingRxData) {
+                    failsafeState.phase = FAILSAFE_RX_LOSS_RECOVERED;
+                    reprocessState = true;
+                } else if (!armed) {
+                    failsafeState.phase = FAILSAFE_RX_LOSS_MONITORING;
+                } else {
+                    beeperMode = BEEPER_RX_LOST;
+                }
                 break;
 
             case FAILSAFE_LANDING:

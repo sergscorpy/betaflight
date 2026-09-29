@@ -47,6 +47,7 @@
 #include "fc/tasks.h"
 
 #include "flight/failsafe.h"
+#include "flight/cruise.h"
 
 #include "io/serial.h"
 
@@ -750,6 +751,11 @@ static void detectAndApplySignalLossBehaviour(void)
     const uint32_t currentTimeMs = millis();
     const bool boxFailsafeSwitchIsOn = IS_RC_MODE_ACTIVE(BOXFAILSAFE);
     rxFlightChannelsValid = rxSignalReceived && !boxFailsafeSwitchIsOn;
+#ifdef USE_CRUISE
+    if (!rxFlightChannelsValid) {
+        cruiseOnRxLoss(micros());
+    }
+#endif
     // rxFlightChannelsValid is false after RXLOSS_TRIGGER_INTERVAL of no packets, or as soon as use the BOXFAILSAFE switch is actioned
     // rxFlightChannelsValid is true the instant we get a good packet or the BOXFAILSAFE switch is reverted
     // can also go false with good packets but where one flight channel is bad > 300ms (PPM type receiver error)
@@ -820,6 +826,12 @@ static void detectAndApplySignalLossBehaviour(void)
         }
     }
 
+    // Bad individual channels can also declare loss; engage before the RX mode/command tasks.
+#ifdef USE_CRUISE
+    if (!rxFlightChannelsValid) {
+        cruiseOnRxLoss(micros());
+    }
+#endif
     if (rxFlightChannelsValid) {
         failsafeOnValidDataReceived();
         //  --> start the timer to exit stage 2 failsafe 100ms after losing all packets or the BOXFAILSAFE switch is actioned
@@ -1091,4 +1103,3 @@ bool isRssiConfigured(void)
 {
     return rssiSource != RSSI_SOURCE_NONE;
 }
-

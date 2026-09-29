@@ -46,10 +46,12 @@
 #include "fc/runtime_config.h"
 
 #include "flight/autopilot.h"
+#include "flight/cruise.h"
 #include "flight/gps_rescue.h"
 #include "flight/imu.h"
 #include "flight/launch_wing.h"
 #include "flight/mixer.h"
+#include "flight/position.h"
 
 #include "io/gps.h"
 
@@ -622,9 +624,17 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     }
 #endif
 
+#ifdef USE_CRUISE
+    if (cruiseIsActive()) {
+        angleTarget = cruiseGetAngle(axis);
+        angleLimit = pidProfile->angle_limit;
+        angleFeedforward = 0.0f;
+    }
+#endif
     angleTarget = constrainf(angleTarget, -angleLimit, angleLimit);
 
-    const float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+    // CRUISE captures measured attitude, independent of the pilot's ANGLE trims.
+    const float currentAngle = (attitude.raw[axis] - (cruiseIsActive() ? 0 : angleTrim->raw[axis])) / 10.0f;
     const float errorAngle = angleTarget - currentAngle;
     float angleRate = errorAngle * pidRuntime.angleGain + angleFeedforward;
 
@@ -641,7 +651,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // this filter runs at ATTITUDE_CUTOFF_HZ, currently 50hz, so GPS roll may be a bit steppy
     angleRate = pt3FilterApply(&pidRuntime.attitudeFilter[axis], angleRate);
 
-    if (FLIGHT_MODE(ANGLE_MODE| GPS_RESCUE_MODE | POS_HOLD_MODE | LAUNCH_MODE)) {
+    if (FLIGHT_MODE(ANGLE_MODE| GPS_RESCUE_MODE | POS_HOLD_MODE | LAUNCH_MODE) || cruiseIsActive()) {
         currentPidSetpoint = angleRate;
     } else {
         // can only be HORIZON mode - crossfade Angle rate and Acro rate
@@ -899,9 +909,10 @@ STATIC_UNIT_TESTED void applyItermRelax(const int axis, const float iterm,
 
 static FAST_CODE_NOINLINE void disarmOnImpact(void)
 {
-    const bool autopilotOwnsThrottle = FLIGHT_MODE(ALT_HOLD_MODE | GPS_RESCUE_MODE);
+    const bool autopilotOwnsThrottle = FLIGHT_MODE(ALT_HOLD_MODE | GPS_RESCUE_MODE) || cruiseIsActive();
     // if, being armed, and after takeoff...
     if (wasThrottleRaised()
+        && (!cruiseIsActive() || isAltitudeAvailable())
         // and, either sticks are centred and throttle zeroed,
         // While an autopilot owns the throttle the pilot's stick says nothing
         // about whether we are landing: it sits low through a controlled
@@ -1083,6 +1094,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     float horizonLevelStrength = 0.0f;
 
     const bool isExternalAngleModeRequest = FLIGHT_MODE(GPS_RESCUE_MODE)
+                || cruiseIsActive()
 #ifdef USE_ALTITUDE_HOLD
                 || FLIGHT_MODE(ALT_HOLD_MODE) // todo - check if this is needed
 #endif
@@ -1094,7 +1106,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif
                 ;
     levelMode_e levelMode;
-    if (FLIGHT_MODE(ANGLE_MODE | HORIZON_MODE | GPS_RESCUE_MODE | LAUNCH_MODE)) {
+    if (FLIGHT_MODE(ANGLE_MODE | HORIZON_MODE | GPS_RESCUE_MODE | LAUNCH_MODE) || cruiseIsActive()) {
         if (pidRuntime.levelRaceMode && !isExternalAngleModeRequest) {
             levelMode = LEVEL_MODE_R;
         } else {
@@ -1209,6 +1221,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif // USE_CHIRP
 
         float currentPidSetpoint = getSetpointRate(axis);
+        if (axis == FD_YAW && cruiseIsActive() && !cruisePilotHasControl()) {
+            currentPidSetpoint = 0.0f;
+        }
         if (pidRuntime.maxVelocity[axis]) {
             currentPidSetpoint = accelerationLimit(axis, currentPidSetpoint);
         }
@@ -1330,7 +1345,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         float pidSetpointDelta = 0;
 
 #if defined(USE_FEEDFORWARD) && defined(USE_ACC)
-        if (FLIGHT_MODE(ANGLE_MODE) && pidRuntime.axisInAngleMode[axis]) {
+        if ((FLIGHT_MODE(ANGLE_MODE) || cruiseIsActive()) && pidRuntime.axisInAngleMode[axis]) {
             // this axis is fully under self-levelling control
             // it will already have stick based feedforward applied in the input to their angle setpoint
             // a simple setpoint Delta can be used to for PID feedforward element for motor lag on these axes
@@ -1347,6 +1362,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             pidSetpointDelta = getFeedforward(axis);
         }
 #endif
+        if (axis == FD_YAW && cruiseIsActive() && !cruisePilotHasControl()) {
+            pidSetpointDelta = 0.0f;
+        }
         pidRuntime.previousPidSetpoint[axis] = currentPidSetpoint; // this is the value sent to blackbox, and used for D-max setpoint
 
         // disable D if launch control is active

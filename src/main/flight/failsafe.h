@@ -37,7 +37,7 @@ typedef struct failsafeConfig_s {
     uint8_t failsafe_delay;                 // Guard time for failsafe activation after signal lost. 1 step = 0.1sec - 1sec in example (10)
     uint8_t failsafe_landing_time;             // Time for Landing before disarm in seconds.
     uint8_t failsafe_switch_mode;           // failsafe switch action is 0: Stage 1, 1: Disarms instantly, 2: Stage 2
-    uint8_t failsafe_procedure;             // selected full failsafe procedure is 0: auto-landing, 1: Drop it
+    uint8_t failsafe_procedure;             // 0: auto-landing, 1: Drop, 2: GPS Rescue, 3: CRUISE
     uint16_t failsafe_recovery_delay;       // Time (in 0.1sec) of valid rx data (min 100ms PERIOD_RXDATA_RECOVERY) to allow recovering from failsafe procedure
     uint8_t failsafe_stick_threshold;       // Stick deflection percentage to exit GPS Rescue procedure
 } failsafeConfig_t;
@@ -52,7 +52,8 @@ typedef enum {
     FAILSAFE_RX_LOSS_MONITORING,
     FAILSAFE_RX_LOSS_RECOVERED,
     FAILSAFE_GPS_RESCUE,
-    FAILSAFE_AUTOPILOT      // continuing an autopilot mission under rx loss (ap_rx_loss_policy = CONTINUE)
+    FAILSAFE_AUTOPILOT,     // continuing an autopilot mission under rx loss (ap_rx_loss_policy = CONTINUE)
+    FAILSAFE_CRUISE
 } failsafePhase_e;
 
 typedef enum {
@@ -63,9 +64,8 @@ typedef enum {
 typedef enum {
     FAILSAFE_PROCEDURE_AUTO_LANDING = 0,
     FAILSAFE_PROCEDURE_DROP_IT,
-#ifdef USE_GPS_RESCUE
     FAILSAFE_PROCEDURE_GPS_RESCUE,
-#endif
+    FAILSAFE_PROCEDURE_CRUISE,
     FAILSAFE_PROCEDURE_COUNT   // must be last
 } failsafeProcedure_e;
 

@@ -34,6 +34,7 @@
 #include "fc/runtime_config.h"
 
 #include "flight/imu.h"
+#include "flight/cruise.h"
 #include "flight/position.h"
 #include "flight/position_estimator.h"
 #include "rx/rx.h"
@@ -348,6 +349,11 @@ void resetAltitudeControl(void)
 
 uint16_t autopilotGetEffectiveHoverThrottlePwm(void)
 {
+#ifdef USE_CRUISE
+    if (cruiseIsActive() && altHoldCapturedHoverPwm != 0) {
+        return altHoldCapturedHoverPwm;
+    }
+#endif
     const uint16_t cfgHover = autopilotConfig()->hoverThrottle;
     if (cfgHover != 0) {
         return cfgHover;
@@ -360,6 +366,15 @@ uint16_t autopilotGetEffectiveHoverThrottlePwm(void)
 
 void autopilotCaptureHoverThrottleForAltHold(void)
 {
+#ifdef USE_CRUISE
+    if (cruiseIsActive()) {
+        const float base = MAX(rxConfig()->mincheck, PWM_RANGE_MIN);
+        const float pwm = base + cruiseGetReferenceThrottle() * (PWM_RANGE_MAX - base);
+        const float hover = PWM_RANGE_MIN + (pwm - PWM_RANGE_MIN) * fmaxf(getCosTiltAngle(), 0.5f);
+        altHoldCapturedHoverPwm = (uint16_t)lrintf(constrainf(hover, AP_HOVER_THROTTLE_CAPTURE_MIN, AP_HOVER_THROTTLE_CAPTURE_MAX));
+        return;
+    }
+#endif
     if (autopilotConfig()->hoverThrottle != 0) {
         altHoldCapturedHoverPwm = 0;
         return;
@@ -652,7 +667,7 @@ bool autopilotYawControlActive(void)
     // re-checking them here the controller would still look active for up to one task
     // period after the pilot switched the mode off, injecting a stale yaw rate on the
     // first frame they expect the stick back.
-    return apYawActive
+    return apYawActive && !cruiseIsActive()
         && (FLIGHT_MODE(AUTOPILOT_MODE)
             || FLIGHT_MODE(POS_HOLD_MODE)
             || FLIGHT_MODE(MAG_MODE)
